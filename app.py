@@ -1,9 +1,11 @@
+import os
 from flask import Flask, escape, request, render_template, abort
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
 import graphene
-
+print(os.environ['APP_SETTINGS'])
 app = Flask(__name__)
+app.config.from_object(os.environ['APP_SETTINGS'])
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///test.sqlite"
 db = SQLAlchemy(app)
 

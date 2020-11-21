@@ -1,14 +1,17 @@
 import os
 from flask import Flask, escape, request, render_template, abort
 from flask_sqlalchemy import SQLAlchemy
+from flask_migrate import Migrate
 from datetime import datetime
 import graphene
 print(os.environ['APP_SETTINGS'])
 app = Flask(__name__)
 app.config.from_object(os.environ['APP_SETTINGS'])
-app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///test.sqlite"
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
+migrate = Migrate(app, db)
 
+from models import Business
 class Query(graphene.ObjectType):
     hello = graphene.String(description='A typical hello world')
 
@@ -17,14 +20,14 @@ class Query(graphene.ObjectType):
 
 schema = graphene.Schema(query=Query)
 
-class TODO(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    content = db.Column(db.String(200), nullable=False)
-    completed = db.Column(db.Integer, default=0)
-    date_created = db.Column(db.DateTime, default=datetime.utcnow)
+# class TODO(db.Model):
+#     id = db.Column(db.Integer, primary_key=True)
+#     content = db.Column(db.String(200), nullable=False)
+#     completed = db.Column(db.Integer, default=0)
+#     date_created = db.Column(db.DateTime, default=datetime.utcnow)
 
-    def __repr__(self):
-        return "<Task %r>" % self.id
+#     def __repr__(self):
+#         return "<Task %r>" % self.id
 
 @app.route('/')
 def hello():

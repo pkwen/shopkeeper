@@ -1,7 +1,8 @@
 import os
-from flask import Flask, escape, request, render_template, abort, jsonify, make_response, redirect, url_for
+from flask import Flask, escape, request, render_template, abort, json, jsonify, make_response, redirect, url_for
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 from flask_migrate import Migrate
 from datetime import datetime
 from flask_bcrypt import Bcrypt
@@ -148,16 +149,25 @@ def orders():
         branch = models.Branch.query.filter_by(uuid = request.args.get("branch")).first()
         return make_response(jsonify(list(map(lambda order: order.serialize(), branch.orders))))
     elif request.method == "POST":
-        if not request.form["products"] or not request.form["station"]:
+        if not request.form["products"] or not request.form["station"] or not request.form["branch"]:
             return "Parameter missing"
-        order = models.Order(total=110, station_id=7, branch_id=1)
+        products = json.loads(request.form["products"])
+        order = models.Order(total=0, station_id=request.form["station"], branch_id=request.form["branch"])
+        total = 0
+        for item in products:
+            op = models.OrderProduct(quantity=item["quantity"])
+            product = models.Product.query.filter_by(uuid = item["uuid"]).first()
+            op.product_id = product.id
+            order.products.append(op)
+            total += product.price * item["quantity"]
+        order.total = total
         db.session.add(order)
         db.session.commit()
         return order.serialize()
 
 @app.route("/order/<uuid:int>")
 def get_order():
-    return models.Station.query.filter_by(uuid = uuid).first()
+    return models.Order.query.filter_by(uuid = uuid).first()
 
 if __name__ == "__main__":
     app.run(debug=True)

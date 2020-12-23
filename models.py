@@ -167,8 +167,7 @@ class Order(db.Model):
         return {
             "uuid": self.uuid,
             "total": self.total,
-            "station": self.station.codename,
-            "products": self.products
+            "station": self.station.codename
         }
     
 class OrderProduct(db.Model):

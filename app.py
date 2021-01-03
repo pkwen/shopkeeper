@@ -66,6 +66,14 @@ def login():
         # return redirect(url_for("login"))
         return make_response(jsonify(user.serialize()), 200)
 
+@app.route("/logout", methods=["POST"])
+def logout():
+    if flask_login.current_user.is_authenticated:
+        flask_login.logout_user()
+        return make_response({}, 200)
+    else:
+        return "Not currently logged in"
+
 @app.route("/setpw", methods=["POST"])
 def setpw():
     if request.form:
@@ -107,7 +115,8 @@ def products():
 
 @app.route("/products/upload_csv", methods=["POST"])
 def upload_csv():
-    print(flask_login.current_user.businesses)
+    if not flask_login.current_user.is_authenticated:
+        return "Need to be logged in to perform this action"
     flask_file = request.files["file"]
     branch = request.form["branch"]
     if not flask_file:
@@ -115,11 +124,27 @@ def upload_csv():
     if not branch:
         return "Branch missing"
     data = pd.read_csv(request.files["file"])
-    data.insert(2, "branch_id", branch)
-    data["uuid"] = [str(uuid.uuid4()) for _ in data["name"]]
-    data["description"] = data["description"].apply(lambda desc:[desc])
-    data.to_sql("products", engine, if_exists="append", index=False)
-    return data.to_json()
+    existing_products = models.Product.query.filter((models.Product.branch_id == branch) & (models.Product.name.in_(data["name"]))).all()
+    for ep in existing_products:
+        np = data[data["name"] == ep.name].to_dict("records")[0]
+        ep.price = np["price"]
+        ep.description = np["description"].splitlines()
+        ep.stock = np["stock"]
+        ep.category = np["category"]
+        db.session.merge(ep)
+    db.session.commit()
+        
+    # only overwrite new unique products
+    data = data[~data["name"].isin([product.name for product in existing_products])]
+    if not data.empty:
+        data.insert(2, "branch_id", branch)
+        data["uuid"] = [str(uuid.uuid4()) for _ in data["name"]]
+        data["description"] = data["description"].apply(lambda desc:desc.splitlines())
+        data.to_sql("products", engine, if_exists="append", index=False)
+
+    updated_products = models.Product.query.filter_by(branch_id = branch).all()
+    # return data.to_json()
+    return make_response(jsonify(list(map(lambda product: product.serialize(), updated_products))), 200)
 
     
 #station
@@ -138,7 +163,7 @@ def stations():
 
 @app.route("/station/<uuid:int>")
 def get_station():
-    return models.Station.query.filter_by(uuid = uuid).first()
+    return models.Station.query.filter_by(uuid = uuid).first().serialize()
 
 #order
 @app.route("/orders", methods=["GET", "POST"])
@@ -167,7 +192,7 @@ def orders():
 
 @app.route("/order/<uuid:int>")
 def get_order():
-    return models.Order.query.filter_by(uuid = uuid).first()
+    return models.Order.query.filter_by(uuid = uuid).first().serialize()
 
 if __name__ == "__main__":
     app.run(debug=True)

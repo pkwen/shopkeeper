@@ -110,7 +110,7 @@ class Product(db.Model):
     description = db.Column(db.ARRAY(db.Text), default=[])
     branch_id = db.Column(db.Integer, db.ForeignKey("branches.id"))
     branch = db.relationship("Branch")
-    available = db.Column(db.Boolean, server_default="true")
+    state = db.Column(db.String, server_default="available")
     components = db.relationship("ProductComponent", back_populates="product")
     orders = db.relationship("OrderProduct", back_populates="product")
     created_at = db.Column(db.DateTime, server_default=db.func.now())
@@ -124,7 +124,7 @@ class Product(db.Model):
             "price": self.price,
             "description": self.description,
             "branch": self.branch_id,
-            "available": self.available,
+            "state": self.state,
             "uuid": self.uuid
         }
     

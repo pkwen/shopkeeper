@@ -125,12 +125,15 @@ def upload_csv():
         return "Branch missing"
     data = pd.read_csv(request.files["file"])
     existing_products = models.Product.query.filter((models.Product.branch_id == branch) & (models.Product.name.in_(data["name"]))).all()
+    # deactivate products that aren't in csv
+    db.session.query(models.Product).filter((models.Product.branch_id == branch) & (~models.Product.name.in_(data["name"]))).update({"state": "unavailable"}, synchronize_session="fetch")
     for ep in existing_products:
         np = data[data["name"] == ep.name].to_dict("records")[0]
         ep.price = np["price"]
         ep.description = np["description"].splitlines()
         ep.stock = np["stock"]
         ep.category = np["category"]
+        ep.state = "available"
         db.session.merge(ep)
     db.session.commit()
         
@@ -142,7 +145,8 @@ def upload_csv():
         data["description"] = data["description"].apply(lambda desc:desc.splitlines())
         data.to_sql("products", engine, if_exists="append", index=False)
 
-    updated_products = models.Product.query.filter_by(branch_id = branch).all()
+    updated_products = models.Product.query.filter_by(branch_id=branch, state="available").all()
+    print(updated_products)
     # return data.to_json()
     return make_response(jsonify(list(map(lambda product: product.serialize(), updated_products))), 200)
 

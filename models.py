@@ -115,7 +115,16 @@ class Product(db.Model):
     orders = db.relationship("OrderProduct", back_populates="product")
     created_at = db.Column(db.DateTime, server_default=db.func.now())
     updated_at = db.Column(db.DateTime, server_default=db.func.now(), server_onupdate=db.func.now())
-
+    @classmethod
+    def list_by_category(cls, branch_id):
+        hash = {}
+        for i in cls.query.filter_by(branch_id = branch_id):
+            if i.category in hash:
+                hash[i.category].append(i.serialize())
+            else:
+                hash[i.category] = [i.serialize()]
+        return hash
+        
     def serialize(self):
         return {
             "id": self.id,

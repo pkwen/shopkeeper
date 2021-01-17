@@ -6,6 +6,7 @@ from sqlalchemy.orm import sessionmaker
 from flask_migrate import Migrate
 from datetime import datetime
 from flask_bcrypt import Bcrypt
+from flask_cors import CORS
 import pandas as pd
 import csv
 import uuid
@@ -21,6 +22,7 @@ migrate = Migrate(app, db)
 bcrypt = Bcrypt(app)
 login_manager = flask_login.LoginManager()
 login_manager.init_app(app)
+CORS(app)
 engine = create_engine(os.environ["DATABASE_URL"])
 
 import models
@@ -112,6 +114,15 @@ def products():
         db.session.add(product)
         db.session.commit()
         return make_response(jsonify(product.serialize()), 200)
+
+@app.route("/products_by_category")
+def products_by_category():
+    branch_uuid = request.args.get("branch_uuid")
+    branch_id = models.Branch.query.filter_by(uuid = branch_uuid).first().id
+    if not branch_id:
+        return {}
+    else:
+        return make_response(models.Product.list_by_category(branch_id))
 
 @app.route("/products/upload_csv", methods=["POST"])
 def upload_csv():

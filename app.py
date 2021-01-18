@@ -169,6 +169,8 @@ def stations():
         if not request.args.get("branch"):
             return "Branch missing"
         branch = models.Branch.query.filter_by(uuid = request.args.get("branch")).first()
+        if not branch:
+            return []
         return make_response(jsonify(list(map(lambda station: station.serialize(), branch.stations))))
     elif request.method == "POST":
         stn = models.Station(codename="table_4", capacity=2, branch_id=1)
@@ -176,7 +178,7 @@ def stations():
         db.session.commit()
         return stn.serialize()
 
-@app.route("/station/<uuid:int>")
+@app.route("/stations/<uuid:int>")
 def get_station():
     return models.Station.query.filter_by(uuid = uuid).first().serialize()
 

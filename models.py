@@ -210,6 +210,7 @@ class Station(db.Model):
     def serialize(self):
         return {
             "codename": self.codename,
-            "capacity": self.capacity
+            "capacity": self.capacity,
+            "uuid": self.uuid
         }
     

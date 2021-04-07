@@ -6,13 +6,16 @@ from sqlalchemy.orm import sessionmaker
 from flask_migrate import Migrate
 from datetime import datetime
 from flask_bcrypt import Bcrypt
+from flask_jwt_extended import (
+    JWTManager, jwt_required, create_access_token,
+    get_jwt_identity
+)
 from flask_cors import CORS
 import pandas as pd
 import csv
 import uuid
 import codecs
 import graphene
-import flask_login
 
 app = Flask(__name__)
 app.config.from_object(os.environ["APP_SETTINGS"])
@@ -20,8 +23,8 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db = SQLAlchemy(app)
 migrate = Migrate(app, db)
 bcrypt = Bcrypt(app)
-login_manager = flask_login.LoginManager()
-login_manager.init_app(app)
+app.config['JWT_SECRET_KEY'] = 'super-secret'  # Change this!
+jwt = JWTManager(app)
 CORS(app)
 engine = create_engine(os.environ["DATABASE_URL"])
 
@@ -43,6 +46,7 @@ schema = graphene.Schema(query=Query)
 #     def __repr__(self):
 #         return "<Task %r>" % self.id
 
+# GraphQL code example:
 @app.route("/")
 def hello():
     query = """
@@ -54,27 +58,50 @@ def hello():
     # print(schema.execute(query).data["hello"])
     return render_template("index.html", res=schema.execute(query).data["hello"])
     # return f"Hi {name}"
+    
+    
 @app.route("/hidden/<int:index>")
 def secret(index):
     return render_template("dynamic.html", index=index)
 
-@app.route("/login", methods=["GET", "POST"])
+@app.route("/login", methods=["POST"])
 def login():
-    if request.form:
-        user = models.Admin.query.filter_by(email=request.form["email"]).first()
-        if user is None or not user.validate(request.form["password"]):
-            return make_response({"message": "wrong credentials"})
-        flask_login.login_user(user, remember=True)
-        # return redirect(url_for("login"))
-        return make_response(jsonify(user.serialize()), 200)
+    if not request.is_json:
+        return jsonify({"msg": "Missing JSON in request"}), 400
+
+    email = request.json.get('email', None)
+    password = request.json.get('password', None)
+    if not email:
+        return jsonify({"msg": "Missing email parameter"}), 400
+    if not password:
+        return jsonify({"msg": "Missing password parameter"}), 400
+    user = models.Admin.query.filter_by(email=request.json["email"]).first()
+    if user is None or not user.validate(password):
+        return make_response(jsonify({"message": "wrong credentials"}, 401))
+
+    # Identity can be any data that is json serializable
+    access_token = create_access_token(identity=email)
+    return make_response(jsonify(access_token=access_token), 200)
+    # if request.json:
+    #     user = models.Admin.query.filter_by(email=request.json["email"]).first()
+    #     if user is None or not user.validate(request.json["password"]):
+    #         return make_response(jsonify({"message": "wrong credentials"}, 200))
+        
+    #     # return redirect(url_for("login"))
+    #     return make_response(jsonify(user.serialize()), 200)
+    # else:
+    #     return make_response(jsonify({'message': 'params not found'}, 200))
 
 @app.route("/logout", methods=["POST"])
+@jwt_required
 def logout():
-    if flask_login.current_user.is_authenticated:
-        flask_login.logout_user()
-        return make_response({}, 200)
-    else:
-        return "Not currently logged in"
+    current_user = get_jwt_identity()
+    return jsonify(logged_in_as=current_user)
+    # if :
+        
+    #     return make_response({}, 200)
+    # else:
+        # return "Not currently logged in"
 
 @app.route("/setpw", methods=["POST"])
 def setpw():
@@ -84,21 +111,11 @@ def setpw():
         db.session.commit()
     return make_response(jsonify(user.serialize()), 200)
 
-@login_manager.user_loader
-def user_loader(user_id):
-    """Given *user_id*, return the associated User object.
-
-    :param unicode user_id: user_id (email) user to retrieve
-
-    """
-    return models.Admin.query.get(user_id)
-
-
 #product
 @app.route("/products", methods=["GET", "POST"])
 def products():
     if request.method == "GET":
-        branch = models.Branch.query.filter_by(uuid = request.args.get("branch")).first()
+        branch = models.Branch.query.filter_by(id = request.args.get("branch_id")).first()
         if branch:
             return make_response(jsonify(list(map(lambda product: product.serialize(), branch.products))), 200)
         else:
@@ -117,31 +134,36 @@ def products():
 
 @app.route("/products_by_category")
 def products_by_category():
-    branch_uuid = request.args.get("branch_uuid")
-    branch_id = models.Branch.query.filter_by(uuid = branch_uuid).first().id
+    branch_id = request.args.get("branch_id")
     if not branch_id:
         return {}
     else:
         return make_response(models.Product.list_by_category(branch_id))
 
 @app.route("/products/upload_csv", methods=["POST"])
+@jwt_required
 def upload_csv():
-    if not flask_login.current_user.is_authenticated:
-        return "Need to be logged in to perform this action"
-    flask_file = request.files["file"]
-    branch = request.form["branch"]
+    print(request)
+    # breakpoint()
+    # if not flask_login.current_user.is_authenticated:
+    #     return "Need to be logged in to perform this action"
+    flask_file = request.files
+    branch_id = request.args.get("branch_id")
     if not flask_file:
         return "Upload a CSV file"
-    if not branch:
+    if not branch_id:
         return "Branch missing"
     data = pd.read_csv(request.files["file"])
-    existing_products = models.Product.query.filter((models.Product.branch_id == branch) & (models.Product.name.in_(data["name"]))).all()
+    branch_id = models.Branch.query.filter_by(id = branch_id).first().id
+    if not branch_id:
+        return "Cannot find branch"
+    existing_products = models.Product.query.filter((models.Product.branch_id == branch_id) & (models.Product.name.in_(data["name"]))).all()
     # deactivate products that aren't in csv
-    db.session.query(models.Product).filter((models.Product.branch_id == branch) & (~models.Product.name.in_(data["name"]))).update({"state": "unavailable"}, synchronize_session="fetch")
+    db.session.query(models.Product).filter((models.Product.branch_id == branch_id) & (~models.Product.name.in_(data["name"]))).update({"state": "unavailable"}, synchronize_session="fetch")
     for ep in existing_products:
         np = data[data["name"] == ep.name].to_dict("records")[0]
         ep.price = np["price"]
-        ep.description = np["description"].splitlines()
+        ep.description = np["description"].splitlines() if type(np["description"]) is str else []
         ep.stock = np["stock"]
         ep.category = np["category"]
         ep.state = "available"
@@ -151,12 +173,12 @@ def upload_csv():
     # only overwrite new unique products
     data = data[~data["name"].isin([product.name for product in existing_products])]
     if not data.empty:
-        data.insert(2, "branch_id", branch)
-        data["uuid"] = [str(uuid.uuid4()) for _ in data["name"]]
-        data["description"] = data["description"].apply(lambda desc:desc.splitlines())
+        data.insert(2, "branch_id", branch_id)
+        data["id"] = [str(uuid.uuid4()) for _ in data["name"]]
+        data["description"] = data["description"].apply(lambda desc:desc.splitlines() if type(desc) is str else [])
         data.to_sql("products", engine, if_exists="append", index=False)
 
-    updated_products = models.Product.query.filter_by(branch_id=branch, state="available").all()
+    updated_products = models.Product.query.filter_by(branch_id=branch_id, state="available").all()
     print(updated_products)
     # return data.to_json()
     return make_response(jsonify(list(map(lambda product: product.serialize(), updated_products))), 200)
@@ -164,41 +186,52 @@ def upload_csv():
     
 #station
 @app.route("/stations", methods=["GET", "POST"])
+
 def stations():
     if request.method == "GET":
         if not request.args.get("branch"):
             return "Branch missing"
-        branch = models.Branch.query.filter_by(uuid = request.args.get("branch")).first()
+        branch = models.Branch.query.filter_by(id = request.args.get("branch")).first()
         if not branch:
             return []
         return make_response(jsonify(list(map(lambda station: station.serialize(), branch.stations))))
     elif request.method == "POST":
-        stn = models.Station(codename="table_4", capacity=2, branch_id=1)
+        if not request.form["codename"] or not request.form["capacity"] or not request.form["branch_id"]:
+            return "Parameter missing"
+        stn = models.Station(
+            codename=request.form['codename'], 
+            capacity=request.form['capacity'], 
+            branch_id=request.form['branch_id']
+        )
         db.session.add(stn)
         db.session.commit()
         return stn.serialize()
 
 @app.route("/stations/<uuid:int>")
 def get_station():
-    return models.Station.query.filter_by(uuid = uuid).first().serialize()
+    return models.Station.query.filter_by(id = uuid).first().serialize()
 
 #order
 @app.route("/orders", methods=["GET", "POST"])
 def orders():
     if request.method == "GET":
-        if not request.args.get("branch"):
+        branch_id = request.args.get("branch_id")
+        if not branch_id:
             return "Branch missing"
-        branch = models.Branch.query.filter_by(uuid = request.args.get("branch")).first()
+        branch = models.Branch.query.filter_by(id = branch_id).first()
         return make_response(jsonify(list(map(lambda order: order.serialize(), branch.orders))))
     elif request.method == "POST":
-        if not request.form["products"] or not request.form["station"] or not request.form["branch"]:
+        if not request.form["products"] or not request.form["station_id"] or not request.form["branch_id"]:
             return "Parameter missing"
+        branch = models.Branch.query.filter_by(id = branch_id).first()
+        if not branch:
+            return "Branch not found"
         products = json.loads(request.form["products"])
-        order = models.Order(total=0, station_id=request.form["station"], branch_id=request.form["branch"])
+        order = models.Order(total=0, station_id=request.form["station"], branch_id=branch.id)
         total = 0
         for item in products:
             op = models.OrderProduct(quantity=item["quantity"])
-            product = models.Product.query.filter_by(uuid = item["uuid"]).first()
+            product = models.Product.query.filter_by(id = item["id"]).first()
             op.product_id = product.id
             order.products.append(op)
             total += product.price * item["quantity"]
@@ -209,7 +242,7 @@ def orders():
 
 @app.route("/order/<uuid:int>")
 def get_order():
-    return models.Order.query.filter_by(uuid = uuid).first().serialize()
+    return models.Order.query.filter_by(id = uuid).first().serialize()
 
 if __name__ == "__main__":
     app.run(debug=True)

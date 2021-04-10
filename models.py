@@ -130,7 +130,7 @@ class Product(db.Model):
             "id": self.id,
             "name": self.name,
             "stock": self.stock,
-            "price": self.price,
+            "price": str(self.price),
             "description": self.description,
             "branch": self.branch_id,
             "state": self.state

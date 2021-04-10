@@ -11,6 +11,7 @@ from flask_jwt_extended import (
     get_jwt_identity
 )
 from flask_cors import CORS
+from decimal import Decimal
 import pandas as pd
 import csv
 import uuid
@@ -189,19 +190,20 @@ def upload_csv():
 
 def stations():
     if request.method == "GET":
-        if not request.args.get("branch"):
-            return "Branch missing"
-        branch = models.Branch.query.filter_by(id = request.args.get("branch")).first()
+        if not request.args.get("branch_id"):
+            return "Branch missing", 400
+        branch = models.Branch.query.filter_by(id = request.args.get("branch_id")).first()
         if not branch:
             return []
         return make_response(jsonify(list(map(lambda station: station.serialize(), branch.stations))))
     elif request.method == "POST":
-        if not request.form["codename"] or not request.form["capacity"] or not request.form["branch_id"]:
-            return "Parameter missing"
+        print(request.json)
+        if not request.json["codename"] or not request.json["capacity"] or not request.json["branch_id"]:
+            return "Parameter missing", 400
         stn = models.Station(
-            codename=request.form['codename'], 
-            capacity=request.form['capacity'], 
-            branch_id=request.form['branch_id']
+            codename=request.json['codename'], 
+            capacity=request.json['capacity'], 
+            branch_id=request.json['branch_id']
         )
         db.session.add(stn)
         db.session.commit()
@@ -221,20 +223,17 @@ def orders():
         branch = models.Branch.query.filter_by(id = branch_id).first()
         return make_response(jsonify(list(map(lambda order: order.serialize(), branch.orders))))
     elif request.method == "POST":
-        if not request.form["products"] or not request.form["station_id"] or not request.form["branch_id"]:
+        if not request.json["products"] or not request.json["station_id"] or not request.json["branch_id"]:
             return "Parameter missing"
-        branch = models.Branch.query.filter_by(id = branch_id).first()
-        if not branch:
-            return "Branch not found"
-        products = json.loads(request.form["products"])
-        order = models.Order(total=0, station_id=request.form["station"], branch_id=branch.id)
+        products = request.json["products"]
+        order = models.Order(total=0, station_id=request.json["station_id"], branch_id=request.json["branch_id"])
         total = 0
         for item in products:
             op = models.OrderProduct(quantity=item["quantity"])
             product = models.Product.query.filter_by(id = item["id"]).first()
             op.product_id = product.id
             order.products.append(op)
-            total += product.price * item["quantity"]
+            total += Decimal.from_float(product.price) * item["quantity"]
         order.total = total
         db.session.add(order)
         db.session.commit()

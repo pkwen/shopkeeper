@@ -69,7 +69,7 @@ def secret(index):
 def login():
     if not request.is_json:
         return jsonify({"msg": "Missing JSON in request"}), 400
-
+    print(request.json.get('email'))
     email = request.json.get('email', None)
     password = request.json.get('password', None)
     if not email:
@@ -92,6 +92,13 @@ def login():
     #     return make_response(jsonify(user.serialize()), 200)
     # else:
     #     return make_response(jsonify({'message': 'params not found'}, 200))
+
+
+@app.route('/current_user', methods=["GET"])
+@jwt_required
+def current_user():
+    current_user = get_jwt_identity()
+    return jsonify(logged_in_as=current_user)
 
 @app.route("/logout", methods=["POST"])
 @jwt_required

@@ -112,13 +112,14 @@ class Product(db.Model):
     branch = db.relationship("Branch")
     state = db.Column(db.String, server_default="available")
     components = db.relationship("ProductComponent", back_populates="product")
+    customizations = db.relationship("ProductCustomization", back_populates="product")
     orders = db.relationship("OrderProduct", back_populates="product")
     created_at = db.Column(db.DateTime, server_default=db.func.now())
     updated_at = db.Column(db.DateTime, server_default=db.func.now(), server_onupdate=db.func.now())
     @classmethod
     def list_by_category(cls, branch_id):
         hash = {}
-        for i in cls.query.filter_by(branch_id = branch_id):
+        for i in cls.query.filter_by(branch_id = branch_id, state = 'available'):
             if i.category in hash:
                 hash[i.category].append(i.serialize())
             else:
@@ -133,7 +134,8 @@ class Product(db.Model):
             "price": str(self.price),
             "description": self.description,
             "branch": self.branch_id,
-            "state": self.state
+            "state": self.state,
+            "customizations": list(map(lambda c:c.customization.serialize(), self.customizations))
         }
     
 class ProductComponent(db.Model):
@@ -161,10 +163,46 @@ class Component(db.Model):
     created_at = db.Column(db.DateTime, server_default=db.func.now())
     updated_at = db.Column(db.DateTime, server_default=db.func.now(), server_onupdate=db.func.now())
     
+class ProductCustomization(db.Model):
+    __tablename__ = "products_customizations"
+    id = db.Column(UUID(as_uuid=True), default=uuid.uuid4, primary_key=True)
+    product_id = db.Column(UUID(as_uuid=True), db.ForeignKey("products.id"))
+    customization_id = db.Column(UUID(as_uuid=True), db.ForeignKey("customizations.id"))
+    product = db.relationship("Product", back_populates="customizations")
+    customization = db.relationship("Customization", back_populates="products")
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+    updated_at = db.Column(db.DateTime, server_default=db.func.now(), server_onupdate=db.func.now())
+    
+class Customization(db.Model):
+    __tablename__ = "customizations"
+    id = db.Column(UUID(as_uuid=True), default=uuid.uuid4, primary_key=True)
+    price = db.Column(db.Float)
+    name = db.Column(db.String)
+    products = db.relationship("ProductCustomization", back_populates="customization")
+    orders_products = db.relationship("OrderProductCustomization", back_populates="customization")
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+    updated_at = db.Column(db.DateTime, server_default=db.func.now(), server_onupdate=db.func.now())
+
+    def serialize(self):
+        return {
+            "id": self.id,
+            "name": self.name,
+            "price": self.price
+        }
+    
+class OrderProductCustomization(db.Model):
+    __tablename__ = "order_products_customizations"
+    id = db.Column(UUID(as_uuid=True), default=uuid.uuid4, primary_key=True)
+    order_product_id = db.Column(UUID(as_uuid=True), db.ForeignKey("orders_products.id"))
+    customization_id = db.Column(UUID(as_uuid=True), db.ForeignKey("customizations.id"))
+    order_product = db.relationship("OrderProduct", back_populates="customizations")
+    customization = db.relationship("Customization", back_populates="orders_products")
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+    updated_at = db.Column(db.DateTime, server_default=db.func.now(), server_onupdate=db.func.now())
+    
 class Order(db.Model):
     __tablename__ = "orders"
     id = db.Column(UUID(as_uuid=True), default=uuid.uuid4, primary_key=True)
-    # uuid = db.Column(UUID(as_uuid=True), default=uuid.uuid4, unique=True, nullable=False)
     total = db.Column(db.Float)
     status = db.Column(db.String, default="requested")
     branch_id = db.Column(UUID(as_uuid=True), db.ForeignKey("branches.id"))
@@ -189,6 +227,7 @@ class OrderProduct(db.Model):
     order = db.relationship("Order", back_populates="products")
     product = db.relationship("Product", back_populates="orders")
     quantity = db.Column(db.Integer)
+    customizations = db.relationship("OrderProductCustomization", back_populates="order_product")
     created_at = db.Column(db.DateTime, server_default=db.func.now())
     updated_at = db.Column(db.DateTime, server_default=db.func.now(), server_onupdate=db.func.now())
     
@@ -198,7 +237,6 @@ class Station(db.Model):
     codename = db.Column(db.String)
     capacity = db.Column(db.Integer)
     qr_code_img = db.Column(db.String)
-    # uuid = db.Column(UUID(as_uuid=True), default=uuid.uuid4, unique=True, nullable=False)
     qr_code_content = db.Column(db.String)
     branch_id = db.Column(UUID(as_uuid=True), db.ForeignKey("branches.id"))
     branch = db.relationship("Branch", back_populates="stations")

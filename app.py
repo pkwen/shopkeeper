@@ -69,7 +69,6 @@ def secret(index):
 def login():
     if not request.is_json:
         return jsonify({"msg": "Missing JSON in request"}), 400
-    print(request.json.get('email'))
     email = request.json.get('email', None)
     password = request.json.get('password', None)
     if not email:
@@ -146,7 +145,7 @@ def products_by_category():
     if not branch_id:
         return {}
     else:
-        return make_response(models.Product.list_by_category(branch_id))
+        return make_response(jsonify(models.Product.list_by_category(branch_id)))
 
 @app.route("/products/upload_csv", methods=["POST"])
 @jwt_required
@@ -188,7 +187,6 @@ def upload_csv():
 
     updated_products = models.Product.query.filter_by(branch_id=branch_id, state="available").all()
     print(updated_products)
-    # return data.to_json()
     return make_response(jsonify(list(map(lambda product: product.serialize(), updated_products))), 200)
 
     
@@ -240,7 +238,14 @@ def orders():
             product = models.Product.query.filter_by(id = item["id"]).first()
             op.product_id = product.id
             order.products.append(op)
-            total += Decimal.from_float(product.price) * item["quantity"]
+            total += Decimal.from_float(product.price) * Decimal.from_float(item["quantity"])
+            if len(item["selectedCustomizations"]) > 0:
+                for customization in item["selectedCustomizations"]:
+                    opc = models.OrderProductCustomization()
+                    opc.customization_id = customization["id"]
+                    op.customizations.append(opc)
+                    total += Decimal.from_float(customization["price"]) * Decimal.from_float(item["quantity"])
+
         order.total = total
         db.session.add(order)
         db.session.commit()
